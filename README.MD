@@ -1,7 +1,7 @@
 # Aster
 Aster is a very simple static site generator, supporting a number of output formats.
 
-At the moment, only html is supported, but gemtext support is in progress.
+At the moment, rudimentary support exists for html and gemtext.
 
 
 ## Generation
@@ -23,11 +23,17 @@ Tags available:
 In html, to indicate a field, use the following syntax:
     ##fieldname#_
 
+### gmi
+
+In gmi, to indicate a field, use the following syntax:
+    $$fieldname$_
 
 ## Usage
 
 To generate a file, call
-    aster <input file name> <output file name> <format name>\
+```
+aster <input file name> <output file name> <format name>
+```
 
 Aster searches for a template in its directory. The template should be named template,
 with the extension matching the format used.

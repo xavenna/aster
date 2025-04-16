@@ -67,7 +67,7 @@ fn main() {
 
     let result = match method.trim() {
         "html" => gen_html(a),
-        "gemtext" => gen_gemtext(a),
+        "gmi" => gen_gemtext(a),
         _ => {eprintln!("Error: bad method");std::process::exit(1);},
 
     }.unwrap();
@@ -80,8 +80,107 @@ fn main() {
 }
 
 /// turns an Article struct to gemtext
-fn gen_gemtext(art: Article) -> Result<String, XVError> {
-    Err(XVError::from("no"))
+fn gen_gemtext(mut art: Article) -> Result<String, XVError> {
+    //load the template
+    let template = match fs::read_to_string("template.gmi") {
+        Ok(s) => s,
+        Err(s) => {eprintln!("{s}");return Err(XVError::from("Couldn't load templ"));},
+    };
+
+    //process body here? (Split into paragraphs, delete single newlines 
+    let out = art.body.clone();
+    
+    let lines: Vec<String> = out.lines().map(|x| x.to_string()).collect();
+    
+    let mut outlines: Vec<String> = Vec::new();
+    let mut line = String::new();
+
+    for x in lines {
+        if x.is_empty() {
+            if !line.is_empty() {
+                outlines.push(line);
+                line = String::new();
+            }
+        } else {
+            line += &x;
+            line.push(' ');
+        }
+
+    }
+
+    //now, add in references. Search each line for references, then remove them. After
+    //each paragraph, insert the appropriate links
+    let mut ind: Vec<usize> = Vec::new();
+    for x in &outlines {
+        let mut pos = 0;
+        loop {
+            let subs = &x[pos..];
+            if let Some(n) = subs.find('[') {
+                if let None = subs.find(']') {
+                    return Err(XVError::from("No closing ']' found"));
+                }
+                let p = subs.find("]").unwrap();
+                let name = &subs[n+1..p];
+                pos = p+1;
+                let id = match name.parse::<usize>() {
+                    Ok(s) => s,
+                    Err(s) => {return Err(XVError::from(s.to_string()));},
+                };
+                if id > ind.len()+1 {
+                    return Err(XVError::from(format!("Annotation '{}' skipped", id-1)));
+                }
+                ind.push(id);
+            } else {
+                break;
+            }
+        }
+    }
+
+    //render outlines into body
+    art.body = String::new();
+    for x in outlines {
+        art.body += &x;
+        art.body += "\n\n";
+
+    }
+
+    //go through template, look for $$tags$_
+    
+    let mut out = String::new();
+    let mut pos: usize = 0;
+    loop {  // FIX OFF BY ONE, OFF BY TWO ERRORS HERE !!!!!!!!!!!!!!!!!!!!!!!!!!
+        let subs = &template[pos..];
+        //get template from pos until next instance of "##"
+        if let Some(n) = subs.find("$$") {
+            if let None = subs.find("$_") {
+                return Err(XVError::from("No closing tag found"));
+            }
+            let p = subs.find("$_").unwrap();
+
+            let name = &subs[n+2..p];
+            //eprintln!("{},{},{},{}", name, pos, n, p);
+
+            let text = &subs[..n];
+            pos += text.len() + 4 + name.len();
+
+            out += text;
+            //now, resolve key's value 
+            let val = match gmi_key(name, &art) {
+                Some(s) => s,
+                None => {return Err(XVError::from(format!("Invalid subst '{}'",name)))},
+            };
+            out += &val;
+
+        } else {
+            //no more tags. break at the end of this operation
+            out += subs;
+            break;
+        }
+
+    }
+
+
+    Ok(out)
 }
 
 /// turns an Article struct to html
@@ -90,7 +189,7 @@ fn gen_html(mut art: Article) -> Result<String, XVError> {
     //load the template, and substitute the tags
     let template = match fs::read_to_string("template.html") {
         Ok(s) => s,
-        Err(s) => {eprintln!("{s}");return Err(XVError::from("Couldn't load temp"));},
+        Err(s) => {eprintln!("{s}");return Err(XVError::from("Couldn't load templ"));},
     };
 
     //process the body here (wrap footnotes in <a> tags, replace repeated \n with <br />
@@ -181,6 +280,34 @@ fn html_key(name: &str, art: &Article) -> Option<String> {
 
     }
 }
+
+fn gmi_key(name: &str, art: &Article) -> Option<String> {
+    match name {
+        "title" => Some(art.title.clone()),
+        "subtitle" => Some(art.subtitle.clone()),
+        "body" => Some(art.body.clone()),
+        "notes" => Some(gmi_notes(art)),
+        "date" => {
+            let now = time::UtcDateTime::now().date().to_string();
+            Some(now)
+
+        },
+        "version" => Some(VERSION.to_string()),
+        _ => None,
+
+    }
+}
+fn gmi_notes(art: &Article) -> String {
+    let mut out = String::new();
+    for (i, x) in art.notes.iter().enumerate() {
+        let j=i+1;
+        //eventually, make this detect links
+        let p = format!("* [{}] : {}\n", j, x);
+        out += &p;
+    }
+    out
+}
+
 
 fn html_notes(art: &Article) -> String {
     let mut out = String::new();
